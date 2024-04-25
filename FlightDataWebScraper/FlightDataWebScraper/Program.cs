@@ -10,6 +10,7 @@ class Program
     static async Task Main(string[] args)
     {
         var url = "http://homeworktask.infare.lt/search.php?from=MAD&to=FUE&depart=2024-05-09&return=2024-05-16";
+        var filePath = @"C:\Users\andre\Desktop\FlightData.csv";
 
         using HttpClient client = new HttpClient();
 
@@ -27,31 +28,12 @@ class Program
             var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights);
             var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
 
-            // Make roundtrip flight combinations for each price category
-            var roundtripFlightCombinations = new List<List<dynamic>>();
-            foreach (var outboundGroup in groupedOutboundFlights)
-            {
-                foreach (var inboundGroup in groupedInboundFlights)
-                {
-                    var roundtripCombination = new List<dynamic>();
-                    roundtripCombination.AddRange(outboundGroup);
-                    roundtripCombination.AddRange(inboundGroup);
-                    roundtripFlightCombinations.Add(roundtripCombination);
-                }
-            }
+            var roundtripFlightCombinations = MakeRoundtripCombinations(groupedOutboundFlights, groupedInboundFlights);
 
-            // Extract prices and calculate taxes for each combination
-            var pricesWithTaxes = new List<PriceWithTaxes>();
-            foreach (var recommendation in desirializedObject.body.data.totalAvailabilities)
-            {
-                decimal totalPrice = recommendation.total;
-                // Assuming tax is 20% of the total price
-                var tax = totalPrice * 0.2m;
-                pricesWithTaxes.Add(new PriceWithTaxes { Price = totalPrice, Tax = tax });
-            }
+            var cheapestOptions = FindCheapestOptions(roundtripFlightCombinations);
 
-            // Save data to CSV file
-            SaveToCsv(pricesWithTaxes, @"C:\Users\andre\Desktop\FlightData.csv");
+            SaveToCsv(cheapestOptions, filePath);
+
             Console.WriteLine("Data saved to flight_prices_with_taxes.csv successfully.");
             Console.ReadKey();
         }
@@ -61,7 +43,7 @@ class Program
         }
     }
 
-    static List<dynamic> FilterFlights(dynamic jsonData, string departureAirport, string arrivalAirport)
+    public static List<dynamic> FilterFlights(dynamic jsonData, string departureAirport, string arrivalAirport)
     {
         var journeys = jsonData.body.data.journeys;
         var filteredFlights = new List<dynamic>();
@@ -72,9 +54,8 @@ class Program
             {
                 var departureCode = flight.airportDeparture.code;
                 var arrivalCode = flight.airportArrival.code;
-                
-                // Check if the flight matches the specified departure and arrival airports
-                if (departureCode == departureAirport || arrivalCode == arrivalAirport)
+
+                if (departureCode == departureAirport && arrivalCode == arrivalAirport)
                 {
                     filteredFlights.Add(flight);
                 }
@@ -84,21 +65,123 @@ class Program
         return filteredFlights;
     }
 
-    static List<List<dynamic>> GroupFlightsByPriceCategory(List<dynamic> flights)
+    public static List<List<dynamic>> GroupFlightsByPriceCategory(List<dynamic> flights)
     {
         var groupedFlights = flights.GroupBy(flight => flight.total)
                                     .Select(group => group.ToList())
                                     .ToList();
-
         return groupedFlights;
     }
 
-    static void SaveToCsv(List<PriceWithTaxes> data, string filePath)
+    public static List<List<dynamic>> MakeRoundtripCombinations(List<List<dynamic>> outboundFlights, List<List<dynamic>> inboundFlights)
     {
-        using (var writer = new StreamWriter(filePath))
-        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+        var roundtripFlightCombinations = new List<List<dynamic>>();
+
+        foreach (var outboundGroup in outboundFlights)
         {
-            csv.WriteRecords(data);
+            foreach (var inboundGroup in inboundFlights)
+            {
+                var roundtripCombination = new List<dynamic>();
+                roundtripCombination.AddRange(outboundGroup);
+                roundtripCombination.AddRange(inboundGroup);
+                roundtripFlightCombinations.Add(roundtripCombination);
+            }
+        }
+
+        return roundtripFlightCombinations;
+    }
+
+    public static List<dynamic> FindCheapestOptions(List<List<dynamic>> roundtripFlightCombinations)
+    {
+        var cheapestOptions = new List<dynamic>();
+
+        foreach (var combination in roundtripFlightCombinations)
+        {
+            decimal minPrice = decimal.MaxValue;
+            dynamic cheapestFlight = null;
+
+            // Find the cheapest flight in the combination
+            foreach (var flight in combination)
+            {
+                decimal totalPrice = flight.total;
+                if (totalPrice < minPrice)
+                {
+                    minPrice = totalPrice;
+                    cheapestFlight = flight;
+                }
+            }
+
+            if (cheapestFlight != null)
+            {
+                // Calculate taxes
+                decimal tax = CalculateTax(cheapestFlight);
+
+                // Create a PriceWithTaxes object and add it to the list
+                var priceWithTax = new PriceWithTaxes
+                {
+                    FlightNumber = cheapestFlight.number,
+                    DepartureAirport = cheapestFlight.airportDeparture.code,
+                    ArrivalAirport = cheapestFlight.airportArrival.code,
+                    DepartureDate = cheapestFlight.dateDeparture,
+                    ArrivalDate = cheapestFlight.dateArrival,
+                    Price = minPrice,
+                    Tax = tax
+                };
+                cheapestOptions.Add(priceWithTax);
+            }
+        }
+
+        return cheapestOptions;
+    }
+
+    public static decimal CalculateTax(dynamic flight)
+    {
+        decimal totalTax = 0.0m;
+
+        foreach (var journey in flight.journeys)
+        {
+            decimal journeyTax = journey.importTaxAdl;
+            totalTax += journeyTax;
+        }
+
+        return totalTax;
+    }
+
+    public static void SaveToCsv(List<PriceWithTaxes> data, string filePath)
+    {
+        try
+        {
+            using (var writer = new StreamWriter(filePath))
+            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+            {
+                // Write the header row
+                csv.WriteField("Flight Number");
+                csv.WriteField("Departure Airport");
+                csv.WriteField("Arrival Airport");
+                csv.WriteField("Departure Date");
+                csv.WriteField("Arrival Date");
+                csv.WriteField("Price");
+                csv.WriteField("Tax");
+                csv.NextRecord();
+
+                // Write flight data with prices and taxes
+                foreach (var priceWithTax in data)
+                {
+                    csv.WriteField(priceWithTax.FlightNumber);
+                    csv.WriteField(priceWithTax.DepartureAirport);
+                    csv.WriteField(priceWithTax.ArrivalAirport);
+                    csv.WriteField(priceWithTax.DepartureDate);
+                    csv.WriteField(priceWithTax.ArrivalDate);
+                    csv.WriteField(priceWithTax.Price);
+                    csv.WriteField(priceWithTax.Tax);
+                    csv.NextRecord();
+                }
+            }
+            Console.WriteLine($"Data has been saved to {filePath} successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred while saving data to {filePath}: {ex.Message}");
         }
     }
 
