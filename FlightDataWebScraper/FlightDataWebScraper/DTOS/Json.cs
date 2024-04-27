@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace FlightDataWebScraper
+namespace FlightDataWebScraper.DTOS
 {
     public class Json
     {
@@ -60,7 +60,7 @@ namespace FlightDataWebScraper
             public int RecommendationId { get; set; }
             public int Identity { get; set; }
             public string Direction { get; set; }
-            public CabinClass CabinClass { get; set; }
+            public string CabinClass { get; set; }
             public decimal ImportChild { get; set; }
             public decimal ImportInfant { get; set; }
             public decimal ImportAdultResident { get; set; }

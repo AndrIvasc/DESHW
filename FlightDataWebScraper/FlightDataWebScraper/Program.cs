@@ -1,57 +1,51 @@
 ﻿using System.Formats.Asn1;
 using System.Globalization;
 using System.Net.Http;
+using System.Security.Authentication.ExtendedProtection;
 using CsvHelper;
 using CsvHelper.Configuration;
+using FlightDataWebScraper.Services;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
+using static FlightDataWebScraper.DTOS.Json;
 
 class Program
 {
     static async Task Main(string[] args)
     {
         var url = "http://homeworktask.infare.lt/search.php?from=MAD&to=FUE&depart=2024-05-09&return=2024-05-16";
+        var filePath = @"C:\Users\andre\Desktop\FlightData.csv";
+
+        var serviceProvider = new ServiceCollection()
+            .AddSingleton<HttpClient>()
+            .AddSingleton<IWebScraperHttp, WebScraperHttp>()
+            .AddSingleton<CSVService>()
+            .BuildServiceProvider();
+
+        
 
         using HttpClient client = new HttpClient();
 
-        var scraper = new WebScraperHttp();
-        string jsonData = await scraper.FetchDataAsync(url);
+        IWebScraperHttp scraper = serviceProvider.GetService<IWebScraperHttp>()!;
+        CSVService csvService = serviceProvider.GetService<CSVService>()!;
+
+        RootObject jsonData = await scraper.FetchDataAsync(url);
 
         try
         {
-            dynamic desirializedObject = JsonConvert.DeserializeObject(jsonData); //var arba dynamic
-
-            var outboundFlights = FilterFlights(desirializedObject, "MAD", "AUH");
-            var inboundFlights = FilterFlights(desirializedObject, "AUH", "MAD");
+            var outboundFlights = FilterFlights(jsonData, "MAD", "AUH");
+            var inboundFlights = FilterFlights(jsonData, "AUH", "MAD");
 
             // Group outbound and inbound flights by price category
-            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights);
-            var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
+            //var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights);
+            //var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
 
-            // Make roundtrip flight combinations for each price category
-            var roundtripFlightCombinations = new List<List<dynamic>>();
-            foreach (var outboundGroup in groupedOutboundFlights)
-            {
-                foreach (var inboundGroup in groupedInboundFlights)
-                {
-                    var roundtripCombination = new List<dynamic>();
-                    roundtripCombination.AddRange(outboundGroup);
-                    roundtripCombination.AddRange(inboundGroup);
-                    roundtripFlightCombinations.Add(roundtripCombination);
-                }
-            }
+            //var roundtripFlightCombinations = MakeRoundtripCombinations(groupedOutboundFlights, groupedInboundFlights);
 
-            // Extract prices and calculate taxes for each combination
-            var pricesWithTaxes = new List<PriceWithTaxes>();
-            foreach (var recommendation in desirializedObject.body.data.totalAvailabilities)
-            {
-                decimal totalPrice = recommendation.total;
-                // Assuming tax is 20% of the total price
-                var tax = totalPrice * 0.2m;
-                pricesWithTaxes.Add(new PriceWithTaxes { Price = totalPrice, Tax = tax });
-            }
+            //var cheapestOptions = FindCheapestOptions(roundtripFlightCombinations);
 
-            // Save data to CSV file
-            SaveToCsv(pricesWithTaxes, @"C:\Users\andre\Desktop\FlightData.csv");
+            //csvService.SaveToCsv(cheapestOptions, filePath);
+
             Console.WriteLine("Data saved to flight_prices_with_taxes.csv successfully.");
             Console.ReadKey();
         }
@@ -61,19 +55,18 @@ class Program
         }
     }
 
-    static List<dynamic> FilterFlights(dynamic jsonData, string departureAirport, string arrivalAirport)
+    public static List<Flight> FilterFlights(RootObject jsonData, string departureAirport, string arrivalAirport)
     {
-        var journeys = jsonData.body.data.journeys;
-        var filteredFlights = new List<dynamic>();
+        var journeys = jsonData.Body.Data.Journeys;
+        var filteredFlights = new List<Flight>();
 
         foreach (var journey in journeys)
         {
-            foreach (var flight in journey.flights)
+            foreach (var flight in journey.Flights)
             {
-                var departureCode = flight.airportDeparture.code;
-                var arrivalCode = flight.airportArrival.code;
+                var departureCode = flight.AirportDeparture.Code;
+                var arrivalCode = flight.AirportArrival.Code;
 
-                // Check if the flight matches the specified departure and arrival airports
                 if (departureCode == departureAirport || arrivalCode == arrivalAirport)
                 {
                     filteredFlights.Add(flight);
@@ -84,22 +77,87 @@ class Program
         return filteredFlights;
     }
 
-    static List<List<dynamic>> GroupFlightsByPriceCategory(List<dynamic> flights)
+    public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights)
     {
-        var groupedFlights = flights.GroupBy(flight => flight.total)
+        var groupedFlights = flights.GroupBy(flight => flight.Total)
                                     .Select(group => group.ToList())
                                     .ToList();
-
         return groupedFlights;
     }
 
-    static void SaveToCsv(List<PriceWithTaxes> data, string filePath)
+    public static List<List<dynamic>> MakeRoundtripCombinations(List<List<dynamic>> outboundFlights, List<List<dynamic>> inboundFlights)
     {
-        using (var writer = new StreamWriter(filePath))
-        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+        var roundtripFlightCombinations = new List<List<dynamic>>();
+
+        foreach (var outboundGroup in outboundFlights)
         {
-            csv.WriteRecords(data);
+            foreach (var inboundGroup in inboundFlights)
+            {
+                var roundtripCombination = new List<dynamic>();
+                roundtripCombination.AddRange(outboundGroup);
+                roundtripCombination.AddRange(inboundGroup);
+                roundtripFlightCombinations.Add(roundtripCombination);
+            }
         }
+
+        return roundtripFlightCombinations;
+    }
+
+    public static List<dynamic> FindCheapestOptions(List<List<dynamic>> roundtripFlightCombinations)
+    {
+        var cheapestOptions = new List<dynamic>();
+
+        foreach (var combination in roundtripFlightCombinations)
+        {
+            decimal minPrice = decimal.MaxValue;
+            dynamic cheapestFlight = null;
+
+            // Find the cheapest flight in the combination
+            foreach (var flight in combination)
+            {
+                decimal totalPrice = flight.total;
+                if (totalPrice < minPrice)
+                {
+                    minPrice = totalPrice;
+                    cheapestFlight = flight;
+                }
+            }
+
+            if (cheapestFlight != null)
+            {
+                // Calculate taxes
+                decimal tax = CalculateTax(cheapestFlight, minPrice);
+
+                // Create a PriceWithTaxes object and add it to the list
+                var priceWithTax = new PriceWithTaxes
+                {
+                    FlightNumber = cheapestFlight.number,
+                    DepartureAirport = cheapestFlight.airportDeparture.code,
+                    ArrivalAirport = cheapestFlight.airportArrival.code,
+                    DepartureDate = cheapestFlight.dateDeparture,
+                    ArrivalDate = cheapestFlight.dateArrival,
+                    Price = minPrice,
+                    Tax = tax
+                };
+                cheapestOptions.Add(priceWithTax);
+            }
+        }
+
+        return cheapestOptions;
+    }
+
+    public static decimal CalculateTax(dynamic flight, decimal totalPrice)
+    {
+        decimal totalTax = 0.0m;
+
+        foreach (var journey in flight.journeys)
+        {
+            decimal journeyTaxPercent = journey.importTaxAdl / 100m;
+            decimal journeyTax = totalPrice * journeyTaxPercent;
+            totalTax += journeyTax;
+        }
+
+        return totalTax;
     }
 
 }
