@@ -5,6 +5,9 @@ namespace FlightDataWebScraper.DTOS
     public class Flight
     {
         [JsonProperty("number")]
+        public int RecommendationId { get; set; }
+
+        [JsonProperty("number")]
         public string? Number { get; set; }
 
         [JsonProperty("airportDeparture")]

@@ -7,6 +7,7 @@ using CsvHelper.Configuration;
 using FlightDataWebScraper.Services;
 using Microsoft.Extensions.DependencyInjection;
 using FlightDataWebScraper.DTOS;
+using System.Linq;
 
 class Program
 {
@@ -35,11 +36,12 @@ class Program
             var outboundFlights = FilterFlights(jsonData, "MAD", "AUH");
             var inboundFlights = FilterFlights(jsonData, "AUH", "MAD");
 
-            Console.WriteLine(outboundFlights);
+            var totalAvailabilities = jsonData.Body.Data.TotalAvailabilities;
+            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, totalAvailabilities);
 
             // Group outbound and inbound flights by price category
-            //var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights);
-            //var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
+            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, totalAvailabilities);
+            var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
 
             //var roundtripFlightCombinations = MakeRoundtripCombinations(groupedOutboundFlights, groupedInboundFlights);
 
@@ -78,13 +80,107 @@ class Program
         return filteredFlights;
     }
 
-    /*public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights)
+    public static List<Flight> FilterFlights(RootObject jsonData, string departureAirport, string arrivalAirport, string selectedDateString)
     {
-        var groupedFlights = flights.GroupBy(flight => flight.Total)
-                                    .Select(group => group.ToList())
-                                    .ToList();
+        var journeys = jsonData.Body.Data.Journeys;
+        var filteredFlights = new List<Flight>();
+
+        foreach (var journey in journeys)
+        {
+            foreach (var flight in journey.Flights)
+            {
+                var departureCode = flight.AirportDeparture.Code;
+                var arrivalCode = flight.AirportArrival.Code;
+                var flightDepartureDate = flight.DateDeparture;
+
+                if (departureCode == departureAirport || arrivalCode == arrivalAirport || flightDepartureDate == flightDepartureDate)
+                {
+                    flight.RecommendationId = journeys.RecommendationId;
+                    filteredFlights.Add(flight);
+                }
+            }
+        }
+
+        return filteredFlights;
+    }
+
+    public static List<List<dynamic>> GroupFlightsByPriceCategory(List<dynamic> flights, List<Journey> journeys, List<TotalAvailability> totalAvailabilities)
+    {
+        var recommendationIdToTotalMap = totalAvailabilities.ToDictionary(avail => avail.RecommendationId, avail => avail.Total);
+
+        var journeyIdToRecommendationIdMap = journeys.ToDictionary(journey => journey.RecommendationId, journey => journey.RecommendationId);
+
+        var recommendationIdToFlightsMap = new Dictionary<int, List<dynamic>>();
+
+        foreach (var flight in flights)
+        {
+            var recommendationId = GetRecommendationIdForFlight(flight, journeyIdToRecommendationIdMap);
+
+            if (recommendationIdToTotalMap.ContainsKey(recommendationId))
+            {
+                if (!recommendationIdToFlightsMap.ContainsKey(recommendationId))
+                {
+                    recommendationIdToFlightsMap[recommendationId] = new List<dynamic>();
+                }
+                recommendationIdToFlightsMap[recommendationId].Add(flight);
+            }
+        }
+
+        var groupedFlights = recommendationIdToFlightsMap.Values.ToList();
+
         return groupedFlights;
-    }*/
+    }
+
+    private static int GetRecommendationIdForFlight(Flight, Dictionary<int, int> journeyIdToRecommendationIdMap)
+    {
+        var journeyId = (int)flight.RecommendationId;
+
+        if (journeyIdToRecommendationIdMap.ContainsKey(journeyId))
+        {
+            return journeyIdToRecommendationIdMap[journeyId];
+        }
+        else
+        {
+            return -1; // Or throw an exception if necessary
+        }
+    }
+
+    public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights, List<TotalAvailability> totalAvailabilities)
+    {
+        var groupedFlights = new List<List<dynamic>>();
+
+ 
+        var recommendationIdToTotalMap = totalAvailabilities.ToDictionary(avail => avail.RecommendationId, avail => avail.Total);
+
+        foreach (var flight in flights)
+        {
+            var recommendationId = (int)flight.recommendationId;
+
+            if (recommendationIdToTotalMap.ContainsKey(recommendationId))
+            {
+                var totalPrice = recommendationIdToTotalMap[recommendationId];
+
+                bool isGrouped = false;
+                foreach (var group in groupedFlights)
+                {
+                    if (group.Any(f => (int)f.recommendationId == recommendationId))
+                    {
+                        group.Add(flight);
+                        isGrouped = true;
+                        break;
+                    }
+                }
+
+                if (!isGrouped)
+                {
+                    var newGroup = new List<dynamic> { flight };
+                    groupedFlights.Add(newGroup);
+                }
+            }
+        }
+
+        return groupedFlights;
+    }
 
     public static List<List<Flight>> MakeRoundtripCombinations(List<List<Flight>> outboundFlights, List<List<Flight>> inboundFlights)
     {
