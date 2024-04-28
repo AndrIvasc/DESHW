@@ -6,8 +6,7 @@ using CsvHelper;
 using CsvHelper.Configuration;
 using FlightDataWebScraper.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Newtonsoft.Json;
-using static FlightDataWebScraper.DTOS.Json;
+using FlightDataWebScraper.DTOS;
 
 class Program
 {
@@ -35,6 +34,8 @@ class Program
         {
             var outboundFlights = FilterFlights(jsonData, "MAD", "AUH");
             var inboundFlights = FilterFlights(jsonData, "AUH", "MAD");
+
+            Console.WriteLine(outboundFlights);
 
             // Group outbound and inbound flights by price category
             //var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights);
@@ -77,23 +78,23 @@ class Program
         return filteredFlights;
     }
 
-    public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights)
+    /*public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights)
     {
         var groupedFlights = flights.GroupBy(flight => flight.Total)
                                     .Select(group => group.ToList())
                                     .ToList();
         return groupedFlights;
-    }
+    }*/
 
-    public static List<List<dynamic>> MakeRoundtripCombinations(List<List<dynamic>> outboundFlights, List<List<dynamic>> inboundFlights)
+    public static List<List<Flight>> MakeRoundtripCombinations(List<List<Flight>> outboundFlights, List<List<Flight>> inboundFlights)
     {
-        var roundtripFlightCombinations = new List<List<dynamic>>();
+        var roundtripFlightCombinations = new List<List<Flight>>();
 
         foreach (var outboundGroup in outboundFlights)
         {
             foreach (var inboundGroup in inboundFlights)
             {
-                var roundtripCombination = new List<dynamic>();
+                var roundtripCombination = new List<Flight>();
                 roundtripCombination.AddRange(outboundGroup);
                 roundtripCombination.AddRange(inboundGroup);
                 roundtripFlightCombinations.Add(roundtripCombination);
@@ -103,7 +104,7 @@ class Program
         return roundtripFlightCombinations;
     }
 
-    public static List<dynamic> FindCheapestOptions(List<List<dynamic>> roundtripFlightCombinations)
+    /*public static List<dynamic> FindCheapestOptions(List<List<Flight>> roundtripFlightCombinations)
     {
         var cheapestOptions = new List<dynamic>();
 
@@ -144,7 +145,7 @@ class Program
         }
 
         return cheapestOptions;
-    }
+    }*/
 
     public static decimal CalculateTax(dynamic flight, decimal totalPrice)
     {

@@ -2,5 +2,5 @@
 
 public interface IWebScraperHttp
 {
-    Task<Json.RootObject> FetchDataAsync(string url);
+    Task<RootObject> FetchDataAsync(string url);
 }

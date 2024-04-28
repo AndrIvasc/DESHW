@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Net.Http;
 using System.Net.Http.Json;
-using static FlightDataWebScraper.DTOS.Json;
+using FlightDataWebScraper.DTOS;
 
 public class WebScraperHttp : IWebScraperHttp
 {
