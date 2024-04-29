@@ -37,17 +37,17 @@ class Program
             var inboundFlights = FilterFlights(jsonData, "AUH", "MAD");
 
             var totalAvailabilities = jsonData.Body.Data.TotalAvailabilities;
-            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, totalAvailabilities);
+            var journeys = jsonData.Body.Data.Journeys;
 
             // Group outbound and inbound flights by price category
-            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, totalAvailabilities);
-            var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights);
+            var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, journeys, totalAvailabilities);
+            var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights, journeys, totalAvailabilities);
 
-            //var roundtripFlightCombinations = MakeRoundtripCombinations(groupedOutboundFlights, groupedInboundFlights);
+            var roundtripFlightCombinations = MakeRoundtripCombinations(groupedOutboundFlights, groupedInboundFlights);
 
-            //var cheapestOptions = FindCheapestOptions(roundtripFlightCombinations);
+            var cheapestOptions = FindCheapestOptions(roundtripFlightCombinations, journeys, totalAvailabilities);
 
-            //csvService.SaveToCsv(cheapestOptions, filePath);
+            csvService.SaveToCsv(cheapestOptions, filePath);
 
             Console.WriteLine("Data saved to flight_prices_with_taxes.csv successfully.");
             Console.ReadKey();
@@ -95,7 +95,7 @@ class Program
 
                 if (departureCode == departureAirport || arrivalCode == arrivalAirport || flightDepartureDate == flightDepartureDate)
                 {
-                    flight.RecommendationId = journeys.RecommendationId;
+                    flight.RecommendationId = journey.RecommendationId;
                     filteredFlights.Add(flight);
                 }
             }
@@ -104,13 +104,13 @@ class Program
         return filteredFlights;
     }
 
-    public static List<List<dynamic>> GroupFlightsByPriceCategory(List<dynamic> flights, List<Journey> journeys, List<TotalAvailability> totalAvailabilities)
+    public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights, List<Journey> journeys, List<TotalAvailability> totalAvailabilities)
     {
         var recommendationIdToTotalMap = totalAvailabilities.ToDictionary(avail => avail.RecommendationId, avail => avail.Total);
 
         var journeyIdToRecommendationIdMap = journeys.ToDictionary(journey => journey.RecommendationId, journey => journey.RecommendationId);
 
-        var recommendationIdToFlightsMap = new Dictionary<int, List<dynamic>>();
+        var recommendationIdToFlightsMap = new Dictionary<int, List<Flight>>();
 
         foreach (var flight in flights)
         {
@@ -120,7 +120,7 @@ class Program
             {
                 if (!recommendationIdToFlightsMap.ContainsKey(recommendationId))
                 {
-                    recommendationIdToFlightsMap[recommendationId] = new List<dynamic>();
+                    recommendationIdToFlightsMap[recommendationId] = new List<Flight>();
                 }
                 recommendationIdToFlightsMap[recommendationId].Add(flight);
             }
@@ -131,55 +131,18 @@ class Program
         return groupedFlights;
     }
 
-    private static int GetRecommendationIdForFlight(Flight, Dictionary<int, int> journeyIdToRecommendationIdMap)
+    private static int GetRecommendationIdForFlight(Flight flight, Dictionary<int, int> RecommendationIdToJourneyIdMap)
     {
-        var journeyId = (int)flight.RecommendationId;
+        var RecommendationId = flight.RecommendationId;
 
-        if (journeyIdToRecommendationIdMap.ContainsKey(journeyId))
+        if (RecommendationIdToJourneyIdMap.ContainsKey(RecommendationId))
         {
-            return journeyIdToRecommendationIdMap[journeyId];
+            return RecommendationIdToJourneyIdMap[RecommendationId];
         }
         else
         {
-            return -1; // Or throw an exception if necessary
+            return -1;
         }
-    }
-
-    public static List<List<Flight>> GroupFlightsByPriceCategory(List<Flight> flights, List<TotalAvailability> totalAvailabilities)
-    {
-        var groupedFlights = new List<List<dynamic>>();
-
- 
-        var recommendationIdToTotalMap = totalAvailabilities.ToDictionary(avail => avail.RecommendationId, avail => avail.Total);
-
-        foreach (var flight in flights)
-        {
-            var recommendationId = (int)flight.recommendationId;
-
-            if (recommendationIdToTotalMap.ContainsKey(recommendationId))
-            {
-                var totalPrice = recommendationIdToTotalMap[recommendationId];
-
-                bool isGrouped = false;
-                foreach (var group in groupedFlights)
-                {
-                    if (group.Any(f => (int)f.recommendationId == recommendationId))
-                    {
-                        group.Add(flight);
-                        isGrouped = true;
-                        break;
-                    }
-                }
-
-                if (!isGrouped)
-                {
-                    var newGroup = new List<dynamic> { flight };
-                    groupedFlights.Add(newGroup);
-                }
-            }
-        }
-
-        return groupedFlights;
     }
 
     public static List<List<Flight>> MakeRoundtripCombinations(List<List<Flight>> outboundFlights, List<List<Flight>> inboundFlights)
@@ -200,39 +163,49 @@ class Program
         return roundtripFlightCombinations;
     }
 
-    /*public static List<dynamic> FindCheapestOptions(List<List<Flight>> roundtripFlightCombinations)
+    public static List<PriceWithTaxes> FindCheapestOptions(List<List<Flight>> roundtripFlightCombinations, List<Journey> journeys, List<TotalAvailability> totalAvailabilities)
     {
-        var cheapestOptions = new List<dynamic>();
+        var cheapestOptions = new List<PriceWithTaxes>();
 
         foreach (var combination in roundtripFlightCombinations)
         {
             decimal minPrice = decimal.MaxValue;
-            dynamic cheapestFlight = null;
+            Flight cheapestFlight = null;
+            Journey cheapestJourney = null;
 
             // Find the cheapest flight in the combination
             foreach (var flight in combination)
             {
-                decimal totalPrice = flight.total;
+                // Find the journey associated with the flight
+                var journey = journeys.FirstOrDefault(j => j.RecommendationId == flight.RecommendationId);
+                if (journey == null) continue;
+
+                // Find the total availability associated with the journey
+                var totalAvailability = totalAvailabilities.FirstOrDefault(ta => ta.RecommendationId == journey.RecommendationId);
+                if (totalAvailability == null) continue;
+
+                decimal totalPrice = totalAvailability.Total;
                 if (totalPrice < minPrice)
                 {
                     minPrice = totalPrice;
                     cheapestFlight = flight;
+                    cheapestJourney = journey;
                 }
             }
 
-            if (cheapestFlight != null)
+            if (cheapestFlight != null && cheapestJourney != null)
             {
                 // Calculate taxes
-                decimal tax = CalculateTax(cheapestFlight, minPrice);
+                decimal tax = CalculateTax(cheapestJourney.ImportTaxAdl, minPrice);
 
                 // Create a PriceWithTaxes object and add it to the list
                 var priceWithTax = new PriceWithTaxes
                 {
-                    FlightNumber = cheapestFlight.number,
-                    DepartureAirport = cheapestFlight.airportDeparture.code,
-                    ArrivalAirport = cheapestFlight.airportArrival.code,
-                    DepartureDate = cheapestFlight.dateDeparture,
-                    ArrivalDate = cheapestFlight.dateArrival,
+                    FlightNumber = cheapestFlight.Number,
+                    DepartureAirport = cheapestFlight.AirportDeparture.Code,
+                    ArrivalAirport = cheapestFlight.AirportArrival.Code,
+                    DepartureDate = cheapestFlight.DateDeparture,
+                    ArrivalDate = cheapestFlight.DateArrival,
                     Price = minPrice,
                     Tax = tax
                 };
@@ -241,7 +214,7 @@ class Program
         }
 
         return cheapestOptions;
-    }*/
+    }
 
     public static decimal CalculateTax(dynamic flight, decimal totalPrice)
     {
