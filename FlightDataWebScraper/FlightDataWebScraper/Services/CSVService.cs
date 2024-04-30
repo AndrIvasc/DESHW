@@ -16,7 +16,6 @@ namespace FlightDataWebScraper.Services
             using (var writer = new StreamWriter(filePath))
             using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
             {
-                // Write the header row
                 csv.WriteField("Flight Number");
                 csv.WriteField("Departure Airport");
                 csv.WriteField("Arrival Airport");
@@ -26,7 +25,6 @@ namespace FlightDataWebScraper.Services
                 csv.WriteField("Tax");
                 csv.NextRecord();
 
-                // Write flight data with prices and taxes
                 foreach (var priceWithTax in data)
                 {
                     csv.WriteField(priceWithTax.FlightNumber);

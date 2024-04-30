@@ -39,7 +39,6 @@ class Program
             var totalAvailabilities = jsonData.Body.Data.TotalAvailabilities;
             var journeys = jsonData.Body.Data.Journeys;
 
-            // Group outbound and inbound flights by price category
             var groupedOutboundFlights = GroupFlightsByPriceCategory(outboundFlights, journeys, totalAvailabilities);
             var groupedInboundFlights = GroupFlightsByPriceCategory(inboundFlights, journeys, totalAvailabilities);
 
@@ -173,14 +172,11 @@ class Program
             Flight cheapestFlight = null;
             Journey cheapestJourney = null;
 
-            // Find the cheapest flight in the combination
             foreach (var flight in combination)
             {
-                // Find the journey associated with the flight
                 var journey = journeys.FirstOrDefault(j => j.RecommendationId == flight.RecommendationId);
                 if (journey == null) continue;
 
-                // Find the total availability associated with the journey
                 var totalAvailability = totalAvailabilities.FirstOrDefault(ta => ta.RecommendationId == journey.RecommendationId);
                 if (totalAvailability == null) continue;
 
@@ -195,10 +191,8 @@ class Program
 
             if (cheapestFlight != null && cheapestJourney != null)
             {
-                // Calculate taxes
                 decimal tax = CalculateTax(cheapestJourney.ImportTaxAdl, minPrice);
 
-                // Create a PriceWithTaxes object and add it to the list
                 var priceWithTax = new PriceWithTaxes
                 {
                     FlightNumber = cheapestFlight.Number,
